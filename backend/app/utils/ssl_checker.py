@@ -13,20 +13,16 @@ class SSLChecker:
 
     def get_cert_details(self) -> Dict:
         try:
-            # Create a context using OpenSSL
-            context = SSL.Context(SSL.TLS_CLIENT_METHOD)
-            context.set_verify(SSL.VERIFY_NONE) # We verify manually
-
-            # Create a socket and connect
+            # Use a more modern method if available
             try:
-                conn = socket.create_connection((self.hostname, self.port), timeout=10)
-            except socket.gaierror:
-                return {"error": f"Could not resolve hostname: {self.hostname}"}
-            except socket.timeout:
-                return {"error": f"Connection timed out for {self.hostname}"}
-            except Exception as e:
-                return {"error": f"Socket error: {str(e)}"}
+                context = SSL.Context(SSL.SSLv23_METHOD)
+            except:
+                context = SSL.Context(SSL.TLS_CLIENT_METHOD)
+            
+            context.set_options(SSL.OP_NO_SSLv2 | SSL.OP_NO_SSLv3)
+            context.set_verify(SSL.VERIFY_NONE)
 
+            conn = socket.create_connection((self.hostname, self.port), timeout=10)
             ssl_conn = SSL.Connection(context, conn)
             ssl_conn.set_tlsext_host_name(self.hostname.encode())
             ssl_conn.set_connect_state()
@@ -34,15 +30,11 @@ class SSLChecker:
             try:
                 ssl_conn.do_handshake()
             except SSL.Error as e:
-                # OpenSSL errors are often a list of tuples
-                error_msg = ""
-                if hasattr(e, 'args') and e.args:
-                    error_msg = f"{e.args}"
-                else:
-                    error_msg = str(e)
-                return {"error": f"SSL Handshake failed: {error_msg}"}
+                # Capture the full OpenSSL error queue
+                error_list = e.args[0] if e.args else "Unknown OpenSSL Error"
+                return {"error": f"SSL Handshake Error: {error_list}"}
             except Exception as e:
-                return {"error": f"Handshake error: {str(e)}"}
+                return {"error": f"Handshake Exception: {type(e).__name__}: {str(e)}"}
 
             # Get the certificate chain
             chain = ssl_conn.get_peer_cert_chain()
@@ -74,11 +66,9 @@ class SSLChecker:
                 details["errors"].append("Certificate has expired")
 
             # Check hostname (simplified)
-            # In a real app we'd use cryptography to check SANs accurately
             subject = leaf_cert.get_subject()
             common_name = dict(subject.get_components()).get(b'CN', b'').decode()
             if common_name and common_name != self.hostname and not self.hostname.endswith(common_name.replace('*.', '.')):
-                 # This is a bit naive, real check should be thorough
                  pass 
 
             details["is_valid"] = len(details["errors"]) == 0
@@ -87,7 +77,7 @@ class SSLChecker:
             return details
 
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"Internal Prober Error: {type(e).__name__}: {str(e)}"}
 
     def _parse_cert(self, cert: SSL.X509) -> Dict:
         subject = cert.get_subject()
@@ -98,8 +88,6 @@ class SSLChecker:
         
         # Get fingerprints
         crypto_cert = x509.load_pem_x509_certificate(
-            # OpenSSL.SSL.X509.to_cryptography() is available in newer pyOpenSSL
-            # but we can fallback to dumping pem
             SSL.dump_certificate(SSL.FILETYPE_PEM, cert)
         )
         
