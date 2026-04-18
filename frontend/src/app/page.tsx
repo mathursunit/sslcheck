@@ -30,7 +30,7 @@ export default function SSLCheck() {
     setResult(null);
 
     try {
-      const response = await fetch('https://sslcheck-api.sunitmathur.com/check', {
+      const response = await fetch('/api/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hostname }),
