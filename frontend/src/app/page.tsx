@@ -96,14 +96,21 @@ export default function SSLCheck() {
       
       setResult(data);
       
-      // Simulate "Live" playback
-      if (data.trace) {
-        let i = 0;
+      // Fixed: Stabilized playback logic
+      if (data.trace && Array.isArray(data.trace)) {
+        let currentIdx = 0;
+        const total = data.trace.length;
         const interval = setInterval(() => {
-          setVisibleLogs(prev => [...prev, data.trace[i]]);
-          i++;
-          if (i >= data.trace.length) clearInterval(interval);
-        }, 150);
+          if (currentIdx < total) {
+            const nextLog = data.trace[currentIdx];
+            if (nextLog) {
+              setVisibleLogs(prev => [...prev, nextLog]);
+            }
+            currentIdx++;
+          } else {
+            clearInterval(interval);
+          }
+        }, 80);
       }
 
       const newHistory = [hostToQuery, ...history.filter(h => h !== hostToQuery)].slice(0, 5);
@@ -117,10 +124,10 @@ export default function SSLCheck() {
   };
 
   useEffect(() => {
-    if (consoleBodyRef.current) {
+    if (showConsole && consoleBodyRef.current) {
       consoleBodyRef.current.scrollTop = consoleBodyRef.current.scrollHeight;
     }
-  }, [visibleLogs]);
+  }, [visibleLogs, showConsole]);
 
   const downloadICS = () => {
     if (!result) return;
@@ -191,16 +198,18 @@ export default function SSLCheck() {
           
           <div className="console-wrapper">
              <div className="console-header" onClick={() => setShowConsole(!showConsole)}>
-                <span className="console-title">Diagnostic Trace {visibleLogs.length}/{result.trace.length}</span>
+                <span className="console-title">Diagnostic Trace {visibleLogs.length}/{result.trace?.length || 0}</span>
                 <span style={{ fontSize: '0.7rem' }}>{showConsole ? '▼ Close' : '▲ View Trace'}</span>
              </div>
              {showConsole && (
                <div className="console-body" ref={consoleBodyRef}>
                   {visibleLogs.map((log, i) => (
-                    <div key={i} className="log-entry">
-                      <span className="log-time">[{log.timestamp}]</span>
-                      <span className="log-msg">{log.message}</span>
-                    </div>
+                    log && (
+                      <div key={i} className="log-entry">
+                        <span className="log-time">[{log.timestamp}]</span>
+                        <span className="log-msg">{log.message}</span>
+                      </div>
+                    )
                   ))}
                </div>
              )}
@@ -218,15 +227,19 @@ export default function SSLCheck() {
                 {result.handshake_time}ms
              </div>
              <div className="badge-valid" style={{ background: 'var(--glass-bg)', color: 'var(--value-color)' }}>
-                {result.alpn}
+                {result.alpn || 'N/A'}
              </div>
-             <div className="geo-badge">
-                📍 {result.geo.city}, {result.geo.country}
-             </div>
-             {result.geo.is_cdn && (
-               <div className="geo-badge cdn-glow">
-                 ⚡ {result.geo.isp} (CDN)
-               </div>
+             {result.geo && (
+               <>
+                 <div className="geo-badge">
+                    📍 {result.geo.city || 'Unknown'}, {result.geo.country || 'Unknown'}
+                 </div>
+                 {result.geo.is_cdn && (
+                   <div className="geo-badge cdn-glow">
+                     ⚡ {result.geo.isp} (CDN)
+                   </div>
+                 )}
+               </>
              )}
           </div>
 
@@ -240,7 +253,7 @@ export default function SSLCheck() {
           </div>
 
           <div className="protocols-grid">
-            {Object.entries(result.protocols).map(([name, active], i) => (
+            {result.protocols && Object.entries(result.protocols).map(([name, active], i) => (
               <div key={i} className={`proto-pill ${active ? 'active' : 'inactive'}`}>
                 <span className="proto-name">{name}</span>
                 <span className="proto-status">{active ? '✔️' : '❌'}</span>
@@ -249,7 +262,7 @@ export default function SSLCheck() {
           </div>
 
           <div className="chain-viz">
-            {result.chain.map((cert, index) => (
+            {result.chain && result.chain.map((cert, index) => (
               <div key={index} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem' }}>
                 <div className="cert-card">
                   <div className="lock-container">
@@ -281,15 +294,17 @@ export default function SSLCheck() {
           <div className="details-section">
             <div className="detail-row">
               <span className="label">Encryption & Cipher</span>
-              <span className="value">{result.cipher_info.name} ({result.cipher_info.bits} bits - {result.cipher_info.strength})</span>
+              <span className="value">
+                {result.cipher_info?.name || 'Unknown'} ({result.cipher_info?.bits || 0} bits - {result.cipher_info?.strength || 'Weak'})
+              </span>
             </div>
 
             <div className="detail-row" style={{ marginTop: '1.5rem' }}>
               <span className="label">SHA-256 FINGERPRINT</span>
-              <span className="value mono">{result.chain[0].fingerprint_sha256}</span>
+              <span className="value mono">{result.chain?.[0]?.fingerprint_sha256 || 'N/A'}</span>
             </div>
 
-            {result.chain[0].sans && result.chain[0].sans.length > 0 && (
+            {result.chain?.[0]?.sans && result.chain[0].sans.length > 0 && (
               <div className="detail-row" style={{ marginTop: '1.5rem' }}>
                 <span className="label">SUBJECT ALTERNATIVE NAMES</span>
                 <div className="sans-list">
@@ -313,7 +328,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.3.0
+        v1.3.1
       </footer>
     </main>
   );
