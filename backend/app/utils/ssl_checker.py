@@ -21,7 +21,7 @@ class SSLChecker:
             "checklist": [],
             "protocols": {},
             "security_grade": "F",
-            "hsts_info": {"enabled": False, "max_age": 0},
+            "hsts_info": {"enabled": False, "preloaded": False},
             "is_valid": False,
             "errors": []
         }
@@ -42,7 +42,8 @@ class SSLChecker:
 
             # 2. HTTP Checks (Server Type & HSTS)
             try:
-                resp = requests.get(f"https://{self.hostname}", timeout=5, verify=False, allow_redirects=True)
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                resp = requests.get(f"https://{self.hostname}", timeout=5, verify=False, allow_redirects=True, headers=headers)
                 results["server_type"] = resp.headers.get("Server", "Unknown")
                 results["checklist"].append({
                     "label": f"Server Type: {results['server_type']}",
@@ -53,10 +54,26 @@ class SSLChecker:
                 if hsts:
                     results["hsts_info"]["enabled"] = True
                     results["checklist"].append({
-                        "label": "HSTS Policy detected and active.",
+                        "label": "HSTS Policy detected in headers.",
                         "status": "success"
                     })
                 else:
+                    # Check HSTS Preload List (e.g. for Google.com)
+                    try:
+                        preload_resp = requests.get(f"https://hstspreload.org/api/v2/status?domain={self.hostname}", timeout=3)
+                        if preload_resp.status_code == 200:
+                            status = preload_resp.json().get("status")
+                            if status == "preloaded":
+                                results["hsts_info"]["enabled"] = True
+                                results["hsts_info"]["preloaded"] = True
+                                results["checklist"].append({
+                                    "label": "HSTS enabled via Browser Preload List.",
+                                    "status": "success"
+                                })
+                    except:
+                        pass
+                
+                if not results["hsts_info"]["enabled"]:
                     results["checklist"].append({
                         "label": "HSTS is not enabled.",
                         "status": "error"
@@ -91,7 +108,6 @@ class SSLChecker:
                             break
                         curr_cert = self._fetch_issuer_cert(curr_cert)
 
-                    # Checklist: Expiry
                     days_left = (leaf_cert.not_valid_after - datetime.utcnow()).days
                     if days_left > 0:
                         results["checklist"].append({
@@ -104,7 +120,6 @@ class SSLChecker:
                             "status": "error"
                         })
 
-                    # Checklist: Hostname match
                     san_list = self._get_sans(leaf_cert)
                     if self._check_hostname(self.hostname, san_list):
                         results["checklist"].append({
@@ -117,7 +132,6 @@ class SSLChecker:
                             "status": "error"
                         })
 
-            # Calculate Grade
             results["security_grade"] = self._calculate_grade(results)
             results["is_valid"] = all(item["status"] == "success" for item in results["checklist"] if item["label"] != "HSTS is not enabled.")
             
@@ -134,7 +148,6 @@ class SSLChecker:
             "TLSv1.2": ssl.TLSVersion.TLSv1_2,
             "TLSv1.3": ssl.TLSVersion.TLSv1_3,
         }
-        
         for name, version in versions.items():
             try:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -142,34 +155,25 @@ class SSLChecker:
                 context.maximum_version = version
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
-                
                 with socket.create_connection((self.hostname, self.port), timeout=2) as sock:
                     with context.wrap_socket(sock, server_hostname=self.hostname) as ssock:
                         protocols[name] = True
-            except:
-                protocols[name] = False
+            except: protocols[name] = False
         return protocols
 
     def _calculate_grade(self, results: Dict) -> str:
-        # F: If expired or hostname mismatch (assuming these are critical fails for grade)
         for item in results["checklist"]:
             if item["status"] == "error":
                 if "expire" in item["label"] or "Hostname mismatch" in item["label"]:
                     return "F"
-
-        # F: If supporting TLS 1.0 or 1.1
-        if results["protocols"].get("TLSv1.0") or results["protocols"].get("TLSv1.1"):
-            return "F"
+        if results["protocols"].get("TLSv1.0") or results["protocols"].get("TLSv1.1"): return "F"
         
-        # A: TLS 1.2+ only AND HSTS
+        # Grade A Requirements: TLS 1.3 Available AND HSTS (Header or Preload)
         if results["hsts_info"]["enabled"] and results["protocols"].get("TLSv1.3"):
             return "A"
         
-        # B: TLS 1.2+ only but no HSTS
-        if not results["hsts_info"]["enabled"]:
-            return "B"
-            
-        return "C"
+        # Grade B: Secure but missing HSTS or TLS 1.3
+        return "B"
 
     def _fetch_issuer_cert(self, cert: x509.Certificate) -> Optional[x509.Certificate]:
         try:
@@ -181,11 +185,9 @@ class SSLChecker:
                     if resp.status_code == 200:
                         try:
                             return x509.load_der_x509_certificate(resp.content)
-                        except:
-                            return None
+                        except: return None
             return None
-        except:
-            return None
+        except: return None
 
     def _get_sans(self, cert: x509.Certificate) -> List[str]:
         try:
