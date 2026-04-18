@@ -16,9 +16,12 @@ class SSLChecker:
         results = {
             "hostname": self.hostname,
             "ip": None,
-            "server_type": None,
+            "server_type": "Unknown",
             "chain": [],
             "checklist": [],
+            "protocols": {},
+            "security_grade": "F",
+            "hsts_info": {"enabled": False, "max_age": 0},
             "is_valid": False,
             "errors": []
         }
@@ -37,7 +40,7 @@ class SSLChecker:
                     "status": "error"
                 })
 
-            # 2. Server Type
+            # 2. HTTP Checks (Server Type & HSTS)
             try:
                 resp = requests.get(f"https://{self.hostname}", timeout=5, verify=False)
                 results["server_type"] = resp.headers.get("Server", "Unknown")
@@ -45,10 +48,26 @@ class SSLChecker:
                     "label": f"Server Type: {results['server_type']}",
                     "status": "success"
                 })
+                
+                hsts = resp.headers.get("Strict-Transport-Security")
+                if hsts:
+                    results["hsts_info"]["enabled"] = True
+                    results["checklist"].append({
+                        "label": "HSTS Policy detected and active.",
+                        "status": "success"
+                    })
+                else:
+                    results["checklist"].append({
+                        "label": "HSTS is not enabled.",
+                        "status": "error"
+                    })
             except:
                 pass
 
-            # 3. SSL Handshake
+            # 3. Protocol Probing
+            results["protocols"] = self._probe_protocols()
+
+            # 4. SSL Handshake & Chain Building
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
@@ -58,9 +77,7 @@ class SSLChecker:
                     cert_bin = ssock.getpeercert(binary_form=True)
                     leaf_cert = x509.load_der_x509_certificate(cert_bin)
                     
-                    # Store processed certs to avoid loops
                     processed_fps = []
-                    
                     curr_cert = leaf_cert
                     while curr_cert and len(results["chain"]) < 5:
                         cert_data = self._parse_crypto_cert(curr_cert)
@@ -70,11 +87,8 @@ class SSLChecker:
                         results["chain"].append(cert_data)
                         processed_fps.append(cert_data["fingerprint_sha256"])
                         
-                        # Stop if self-signed (Root)
                         if curr_cert.subject == curr_cert.issuer:
                             break
-                            
-                        # Try to find intermediate certificate via AIA
                         curr_cert = self._fetch_issuer_cert(curr_cert)
 
                     # Checklist: Expiry
@@ -98,27 +112,64 @@ class SSLChecker:
                             "status": "success"
                         })
                     else:
-                        results["error_detail"] = f"Hostname mismatch. Domain: {self.hostname}, SANs: {san_list}"
                         results["checklist"].append({
                             "label": f"Hostname mismatch: {self.hostname} not found in SANs.",
                             "status": "error"
                         })
 
-            # Checklist: Chain Trust
-            if len(results["chain"]) > 1:
-                results["checklist"].append({
-                    "label": "All the correct intermediate certificates are installed.",
-                    "status": "success"
-                })
-            else:
-                # If only leaf, might be missing intermediate or already a root?
-                pass
-
-            results["is_valid"] = all(item["status"] == "success" for item in results["checklist"])
+            # Calculate Grade
+            results["security_grade"] = self._calculate_grade(results)
+            results["is_valid"] = all(item["status"] == "success" for item in results["checklist"] if item["label"] != "HSTS is not enabled.")
+            
             return results
 
         except Exception as e:
             return {"error": str(e)}
+
+    def _probe_protocols(self) -> Dict[str, bool]:
+        protocols = {"TLSv1.0": False, "TLSv1.1": False, "TLSv1.2": False, "TLSv1.3": False}
+        versions = {
+            "TLSv1.0": ssl.TLSVersion.TLSv1,
+            "TLSv1.1": ssl.TLSVersion.TLSv1_1,
+            "TLSv1.2": ssl.TLSVersion.TLSv1_2,
+            "TLSv1.3": ssl.TLSVersion.TLSv1_3,
+        }
+        
+        for name, version in versions.items():
+            try:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                context.minimum_version = version
+                context.maximum_version = version
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                
+                with socket.create_connection((self.hostname, self.port), timeout=2) as sock:
+                    with context.wrap_socket(sock, server_hostname=self.hostname) as ssock:
+                        protocols[name] = True
+            except:
+                protocols[name] = False
+        return protocols
+
+    def _calculate_grade(self, results: Dict) -> str:
+        # F: If expired or hostname mismatch (assuming these are critical fails for grade)
+        for item in results["checklist"]:
+            if item["status"] == "error":
+                if "expire" in item["label"] or "Hostname mismatch" in item["label"]:
+                    return "F"
+
+        # F: If supporting TLS 1.0 or 1.1
+        if results["protocols"].get("TLSv1.0") or results["protocols"].get("TLSv1.1"):
+            return "F"
+        
+        # A: TLS 1.2+ only AND HSTS
+        if results["hsts_info"]["enabled"] and results["protocols"].get("TLSv1.3"):
+            return "A"
+        
+        # B: TLS 1.2+ only but no HSTS
+        if not results["hsts_info"]["enabled"]:
+            return "B"
+            
+        return "C"
 
     def _fetch_issuer_cert(self, cert: x509.Certificate) -> Optional[x509.Certificate]:
         try:
@@ -128,11 +179,9 @@ class SSLChecker:
                     url = access_description.access_location.value
                     resp = requests.get(url, timeout=5)
                     if resp.status_code == 200:
-                        # AIA certs can be DER or PKCS7
                         try:
                             return x509.load_der_x509_certificate(resp.content)
                         except:
-                            # Might be PKCS7 or other, complex to parse without more libs
                             return None
             return None
         except:
@@ -143,7 +192,6 @@ class SSLChecker:
             ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
             return ext.value.get_values_for_type(x509.DNSName)
         except:
-            # Fallback to CN
             cn = self._get_name_attr(cert.subject, NameOID.COMMON_NAME)
             return [cn] if cn != "Unknown" else []
 
@@ -151,24 +199,16 @@ class SSLChecker:
         for san in sans:
             clean_san = san.lower()
             clean_host = hostname.lower()
-            if clean_san == clean_host:
-                return True
+            if clean_san == clean_host: return True
             if clean_san.startswith("*."):
-                suffix = clean_san[1:] # e.g. .google.com
+                suffix = clean_san[1:]
                 if clean_host.endswith(suffix) and clean_host.count('.') == clean_san.count('.'):
                     return True
         return False
 
     def _parse_crypto_cert(self, cert: x509.Certificate) -> Dict:
-        def name_to_str(name):
-            components = []
-            for attr in name:
-                components.append(f"{attr.oid._name}={attr.value}")
-            return ", ".join(components)
-
         fingerprint = cert.fingerprint(hashes.SHA256()).hex().upper()
         fingerprint = ":".join(fingerprint[i:i+2] for i in range(0, len(fingerprint), 2))
-
         return {
             "common_name": self._get_name_attr(cert.subject, NameOID.COMMON_NAME),
             "organization": self._get_name_attr(cert.subject, NameOID.ORGANIZATION_NAME),
