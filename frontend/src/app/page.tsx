@@ -3,18 +3,30 @@
 import { useState } from 'react';
 
 interface CertDetail {
-  subject: Record<string, string>;
-  issuer: Record<string, string>;
-  not_after: string;
-  is_expired: boolean;
+  common_name: string;
+  issuer: string;
+  issuer_full: string;
+  subject_full: string;
+  valid_from: string;
+  valid_to: string;
+  serial_number: string;
+  signature_algorithm: string;
   fingerprint_sha256: string;
+  sans: string[];
+}
+
+interface CheckItem {
+  label: string;
+  status: 'success' | 'error';
 }
 
 interface SSLResult {
   hostname: string;
-  is_valid: boolean;
+  ip: string;
+  server_type: string;
   chain: CertDetail[];
-  errors: string[];
+  checklist: CheckItem[];
+  is_valid: boolean;
 }
 
 export default function SSLCheck() {
@@ -36,12 +48,8 @@ export default function SSLCheck() {
         body: JSON.stringify({ hostname }),
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to check SSL');
-      }
-
       const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Analysis failed');
       setResult(data);
     } catch (err: any) {
       setError(err.message);
@@ -58,81 +66,73 @@ export default function SSLCheck() {
       </header>
 
       <div className="search-container">
-        <div className="search-inner">
-          <input
-            type="text"
-            placeholder="Enter hostname (e.g. google.com)"
-            value={hostname}
-            onChange={(e) => setHostname(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-          />
-          <button onClick={handleCheck} disabled={loading}>
-            {loading ? <div className="loader"></div> : 'Check SSL'}
-          </button>
-        </div>
-        {error && (
-          <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-            <p style={{ color: 'var(--danger)', marginBottom: '0.5rem' }}>SSL Check Failed</p>
-            <code style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.8rem', color: 'var(--danger)' }}>
-              {error}
-            </code>
-          </div>
-        )}
+        <input
+          type="text"
+          placeholder="Enter hostname (e.g. google.com)"
+          value={hostname}
+          onChange={(e) => setHostname(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
+        />
+        <button onClick={handleCheck} disabled={loading}>
+          {loading ? 'Checking...' : 'Check SSL'}
+        </button>
       </div>
 
+      {error && (
+        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+          <p style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>Error: {error}</p>
+        </div>
+      )}
+
       {result && (
-        <div className="results">
-          <div className="status-card">
-            <div className="status-header">
-              <div>
-                <h2 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{result.hostname}</h2>
-                <div style={{ color: '#64748b', fontSize: '0.9rem' }}>
-                  Total {result.chain.length} certificates in chain
-                </div>
+        <div className="results-container">
+          <div className="checklist">
+            {result.checklist.map((item, i) => (
+              <div className="check-item" key={i} style={{ animationDelay: `${i * 0.1}s` }}>
+                <div className={`check-icon ${item.status}`}></div>
+                <div className="check-label">{item.label}</div>
               </div>
-              <div className={`badge ${result.is_valid ? 'valid' : 'invalid'}`}>
-                {result.is_valid ? 'Valid Certificate' : 'Issues Found'}
-              </div>
-            </div>
+            ))}
+          </div>
 
-            {result.errors.length > 0 && (
-              <div style={{ marginBottom: '2rem', padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '1rem', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                {result.errors.map((err, i) => (
-                  <div key={i} style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>• {err}</div>
-                ))}
-              </div>
-            )}
-
-            <div className="chain-container">
-              {result.chain.map((cert, index) => (
-                <div className="chain-item" key={index}>
-                  <div className="chain-index">{index === 0 ? 'Leaf' : index === result.chain.length - 1 ? 'Root' : `Intermediate ${index}`}</div>
-                  <div className="cert-name">{cert.subject.CN || 'Unknown Common Name'}</div>
-                  
-                  <div className="cert-meta">
-                    <div className="meta-group">
-                      <label>Issuer</label>
-                      <span>{cert.issuer.CN || 'Unknown'}</span>
+          <div className="chain-viz">
+            {result.chain.map((cert, index) => (
+              <div key={index} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
+                <div className="cert-card">
+                  <div className="lock-container">
+                    <div className="lock-icon">🔒</div>
+                    <div className="lock-label">{index === 0 ? 'Server' : 'Chain'}</div>
+                  </div>
+                  <div className="cert-content">
+                    <div className="cert-header">
+                      <div className="cn">{cert.common_name}</div>
+                      {index === 0 && <div className="badge-valid">VALID CERTIFICATE</div>}
                     </div>
-                    <div className="meta-group">
-                      <label>Expires</label>
-                      <span style={{ color: cert.is_expired ? 'var(--danger)' : 'inherit' }}>
-                        {new Date(cert.not_after).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="meta-group" style={{ gridColumn: '1 / -1' }}>
-                      <label>SHA-256 Fingerprint</label>
-                      <span style={{ fontSize: '0.75rem', opacity: 0.7, fontFamily: 'monospace' }}>{cert.fingerprint_sha256}</span>
+                    <div className="grid-info">
+                      <div className="info-box">
+                        <label>Issuer</label>
+                        <span>{cert.issuer}</span>
+                      </div>
+                      <div className="info-box">
+                        <label>Expires</label>
+                        <span>{new Date(cert.valid_to).toLocaleDateString()}</span>
+                      </div>
+                      <div className="info-box" style={{ gridColumn: '1 / -1' }}>
+                        <label>SHA-256 Fingerprint</label>
+                        <span style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{cert.fingerprint_sha256}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+                {index < result.chain.length - 1 && <div className="arrow">↓</div>}
+              </div>
+            ))}
           </div>
         </div>
       )}
-      <footer style={{ marginTop: 'auto', padding: '2rem', color: '#475569', fontSize: '0.8rem', textAlign: 'center' }}>
-        v1.0.6
+
+      <footer style={{ textAlign: 'center' }}>
+        v1.1.0
       </footer>
     </main>
   );
