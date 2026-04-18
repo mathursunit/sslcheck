@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface CertDetail {
   common_name: string;
@@ -34,6 +34,23 @@ export default function SSLCheck() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SSLResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // Theme support
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'dark' | 'light';
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
 
   const handleCheck = async () => {
     if (!hostname) return;
@@ -60,6 +77,10 @@ export default function SSLCheck() {
 
   return (
     <main>
+      <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle Theme">
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
+
       <header>
         <h1>SSLCheck</h1>
         <p className="subtitle">Verify certificate chain and validity on-demand.</p>
@@ -97,7 +118,7 @@ export default function SSLCheck() {
 
           <div className="chain-viz">
             {result.chain.map((cert, index) => (
-              <div key={index} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
+              <div key={index} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem' }}>
                 <div className="cert-card">
                   <div className="lock-container">
                     <div className="lock-icon">🔒</div>
@@ -136,7 +157,7 @@ export default function SSLCheck() {
             </div>
 
             {result.chain[0].sans && result.chain[0].sans.length > 0 && (
-              <div className="detail-row" style={{ marginTop: '2rem' }}>
+              <div className="detail-row" style={{ marginTop: '1.5rem' }}>
                 <span className="label">SUBJECT ALTERNATIVE NAMES</span>
                 <div className="sans-list">
                   {result.chain[0].sans.map((san, idx) => (
@@ -154,7 +175,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.1.3
+        v1.1.4
       </footer>
     </main>
   );
