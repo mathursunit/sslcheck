@@ -22,9 +22,15 @@ interface CheckItem {
   status: 'success' | 'error' | 'info';
 }
 
+interface TraceEntry {
+  timestamp: string;
+  message: string;
+}
+
 interface SSLResult {
   hostname: string;
   ip: string;
+  geo: { country: string; city: string; isp: string; is_cdn: boolean };
   server_type: string;
   chain: CertDetail[];
   checklist: CheckItem[];
@@ -34,6 +40,7 @@ interface SSLResult {
   alpn: string;
   security_grade: string;
   hsts_info: { enabled: boolean; preloaded: boolean };
+  trace: TraceEntry[];
   is_valid: boolean;
 }
 
@@ -44,7 +51,10 @@ export default function SSLCheck() {
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [history, setHistory] = useState<string[]>([]);
+  const [showConsole, setShowConsole] = useState(false);
+  const [visibleLogs, setVisibleLogs] = useState<TraceEntry[]>([]);
   const reportRef = useRef<HTMLDivElement>(null);
+  const consoleBodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as 'dark' | 'light';
@@ -71,6 +81,8 @@ export default function SSLCheck() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setVisibleLogs([]);
+    setShowConsole(false);
 
     try {
       const response = await fetch('/api/run-analysis', {
@@ -81,8 +93,19 @@ export default function SSLCheck() {
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Analysis failed');
+      
       setResult(data);
       
+      // Simulate "Live" playback
+      if (data.trace) {
+        let i = 0;
+        const interval = setInterval(() => {
+          setVisibleLogs(prev => [...prev, data.trace[i]]);
+          i++;
+          if (i >= data.trace.length) clearInterval(interval);
+        }, 150);
+      }
+
       const newHistory = [hostToQuery, ...history.filter(h => h !== hostToQuery)].slice(0, 5);
       setHistory(newHistory);
       localStorage.setItem('ssl_history', JSON.stringify(newHistory));
@@ -92,6 +115,12 @@ export default function SSLCheck() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (consoleBodyRef.current) {
+      consoleBodyRef.current.scrollTop = consoleBodyRef.current.scrollHeight;
+    }
+  }, [visibleLogs]);
 
   const downloadICS = () => {
     if (!result) return;
@@ -127,7 +156,7 @@ export default function SSLCheck() {
 
       <header>
         <h1>SSLCheck</h1>
-        <p className="subtitle">Enterprise SSL Monitoring & Deep Analysis</p>
+        <p className="subtitle">Enterprise SSL Monitoring & Intelligence</p>
       </header>
 
       <div className="search-container">
@@ -159,6 +188,24 @@ export default function SSLCheck() {
 
       {result && (
         <div className="results-container" ref={reportRef}>
+          
+          <div className="console-wrapper">
+             <div className="console-header" onClick={() => setShowConsole(!showConsole)}>
+                <span className="console-title">Diagnostic Trace {visibleLogs.length}/{result.trace.length}</span>
+                <span style={{ fontSize: '0.7rem' }}>{showConsole ? '▼ Close' : '▲ View Trace'}</span>
+             </div>
+             {showConsole && (
+               <div className="console-body" ref={consoleBodyRef}>
+                  {visibleLogs.map((log, i) => (
+                    <div key={i} className="log-entry">
+                      <span className="log-time">[{log.timestamp}]</span>
+                      <span className="log-msg">{log.message}</span>
+                    </div>
+                  ))}
+               </div>
+             )}
+          </div>
+
           <div className="grade-container">
             <div className={`grade-circle grade-${result.security_grade}`}>
               <span className="grade-letter">{result.security_grade}</span>
@@ -166,13 +213,21 @@ export default function SSLCheck() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', marginBottom: '2rem', flexWrap: 'wrap' }}>
              <div className="badge-valid" style={{ background: 'var(--primary-glow)', color: 'var(--primary)', borderColor: 'var(--primary)' }}>
-                Handshake: {result.handshake_time}ms
+                {result.handshake_time}ms
              </div>
              <div className="badge-valid" style={{ background: 'var(--glass-bg)', color: 'var(--value-color)' }}>
-                Protocol: {result.alpn}
+                {result.alpn}
              </div>
+             <div className="geo-badge">
+                📍 {result.geo.city}, {result.geo.country}
+             </div>
+             {result.geo.is_cdn && (
+               <div className="geo-badge cdn-glow">
+                 ⚡ {result.geo.isp} (CDN)
+               </div>
+             )}
           </div>
 
           <div className="checklist">
@@ -258,7 +313,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.2.2
+        v1.3.0
       </footer>
     </main>
   );

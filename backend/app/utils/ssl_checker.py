@@ -13,11 +13,20 @@ class SSLChecker:
     def __init__(self, hostname: str, port: int = 443):
         self.hostname = hostname
         self.port = port
+        self.trace = []
+
+    def _log(self, message: str):
+        self.trace.append({
+            "timestamp": datetime.now().strftime("%H:%M:%S.%f")[:-3],
+            "message": message
+        })
 
     def get_details(self) -> Dict:
+        self._log(f"Starting analysis for {self.hostname}...")
         results = {
             "hostname": self.hostname,
             "ip": None,
+            "geo": {"country": "Unknown", "city": "Unknown", "isp": "Unknown", "is_cdn": False},
             "server_type": "Unknown",
             "chain": [],
             "checklist": [],
@@ -28,24 +37,44 @@ class SSLChecker:
             "security_grade": "F",
             "hsts_info": {"enabled": False, "preloaded": False},
             "caa_data": {"exists": False, "records": []},
-            "is_valid": False,
-            "errors": []
+            "trace": self.trace,
+            "is_valid": False
         }
 
         try:
-            # 1. IP & DNS (CAA Check)
+            # 1. IP & GEO Lookup
+            self._log("Resolving DNS records...")
             try:
                 results["ip"] = socket.gethostbyname(self.hostname)
                 results["checklist"].append({"label": f"{self.hostname} resolves to {results['ip']}", "status": "success"})
+                self._log(f"IP found: {results['ip']}")
+                
+                # Geo Lookup
+                self._log("Fetching Geo-location and ISP data...")
+                geo_resp = requests.get(f"http://ip-api.com/json/{results['ip']}?fields=status,country,city,isp,org,as", timeout=3)
+                if geo_resp.status_code == 200:
+                    geo_data = geo_resp.json()
+                    results["geo"] = {
+                        "country": geo_data.get("country", "Unknown"),
+                        "city": geo_data.get("city", "Unknown"),
+                        "isp": geo_data.get("isp", "Unknown"),
+                        "as": geo_data.get("as", "Unknown"),
+                        "is_cdn": any(x in (geo_data.get("isp", "") + geo_data.get("org", "")).lower() for x in ["cloudflare", "akamai", "fastly", "amazon", "google", "microsoft"])
+                    }
+                    self._log(f"Location: {results['geo']['city']}, {results['geo']['country']} | ISP: {results['geo']['isp']}")
             except:
-                results["checklist"].append({"label": f"Could not resolve IP for {self.hostname}", "status": "error"})
+                results["checklist"].append({"label": f"Could not resolve {self.hostname}", "status": "error"})
 
+            # 2. CAA Records
+            self._log("Checking CAA (Certificate Authority Authorization) records...")
             self._check_caa(results)
 
-            # 2. HTTP Checks
+            # 3. HTTP Layer
+            self._log("Initiating HTTP/HTTPS header check...")
             self._check_hsts(results)
 
-            # 3. Protocol & Handshake Depth
+            # 4. Deep Handshake
+            self._log("Performing deep TLS handshake and cipher negotiation...")
             start_time = time.time()
             context = ssl.create_default_context()
             context.set_alpn_protocols(['h2', 'http/1.1'])
@@ -62,26 +91,31 @@ class SSLChecker:
                         "strength": "Strong" if cipher[2] >= 256 else "Secure" if cipher[2] >= 128 else "Weak"
                     }
                     results["alpn"] = ssock.selected_alpn_protocol() or "http/1.1"
+                    self._log(f"Protocol: {ssock.version()} | Cipher: {cipher[0]} ({cipher[2]} bits)")
                     
-                    # Process Certs
+                    self._log("Extracting and parsing X.509 certificate chain...")
                     cert_bin = ssock.getpeercert(binary_form=True)
                     leaf_cert = x509.load_der_x509_certificate(cert_bin)
+                    
+                    self._log("Discovering certificate authority chain (AIA)...")
                     self._process_chain(leaf_cert, results)
-
-                    # Checklist basics
                     self._run_checklist_basics(leaf_cert, results)
 
-            # 4. Global Protocol Probing
+            # 5. Protocol Probing
+            self._log("Probing for legacy protocol support (TLS 1.0, 1.1)...")
             results["protocols"] = self._probe_protocols()
 
-            # 5. Final Grading
+            # 6. Final Grading
+            self._log("Calculating final security grade...")
             results["security_grade"] = self._calculate_grade(results)
             results["is_valid"] = all(item["status"] == "success" for item in results["checklist"] if "HSTS" not in item["label"])
+            self._log("Analysis complete.")
             
             return results
 
         except Exception as e:
-            return {"error": str(e)}
+            self._log(f"FATAL ERROR: {str(e)}")
+            return {"error": str(e), "trace": self.trace}
 
     def _check_caa(self, results):
         try:
@@ -91,29 +125,28 @@ class SSLChecker:
             results["caa_data"]["exists"] = len(results["caa_data"]["records"]) > 0
             if results["caa_data"]["exists"]:
                 results["checklist"].append({"label": "CAA security policy detected.", "status": "success"})
+                self._log(f"Found {len(results['caa_data']['records'])} CAA records.")
             else:
-                results["checklist"].append({"label": "No CAA policy found (optional but recommended).", "status": "info"})
-        except:
-            pass
+                results["checklist"].append({"label": "No CAA policy found.", "status": "info"})
+        except: pass
 
     def _check_hsts(self, results):
         try:
+            self._log("Checking for Strict-Transport-Security (HSTS) headers...")
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
             resp = requests.get(f"https://{self.hostname}", timeout=5, verify=False, allow_redirects=True, headers=headers)
             results["server_type"] = resp.headers.get("Server", "Unknown")
             hsts = resp.headers.get("Strict-Transport-Security")
             if hsts:
                 results["hsts_info"]["enabled"] = True
-                results["checklist"].append({"label": "HSTS Policy detected.", "status": "success"})
+                self._log("HSTS header found.")
             else:
+                self._log("HSTS header missing. Checking Chrome Preload List...")
                 p_resp = requests.get(f"https://hstspreload.org/api/v2/status?domain={self.hostname}", timeout=3)
                 if p_resp.status_code == 200 and p_resp.json().get("status") == "preloaded":
                     results["hsts_info"]["enabled"] = True
                     results["hsts_info"]["preloaded"] = True
-                    results["checklist"].append({"label": "HSTS enabled via Browser Preload List.", "status": "success"})
-            
-            if not results["hsts_info"]["enabled"]:
-                results["checklist"].append({"label": "HSTS is not enabled.", "status": "error"})
+                    self._log("Domain is on the HSTS Preload List.")
         except: pass
 
     def _probe_protocols(self) -> Dict[str, bool]:
@@ -135,11 +168,9 @@ class SSLChecker:
     def _calculate_grade(self, results: Dict) -> str:
         failed_crit = any(i["status"] == "error" and ("expire" in i["label"] or "Hostname mismatch" in i["label"]) for i in results["checklist"])
         if failed_crit or results["protocols"].get("TLSv1.0") or results["protocols"].get("TLSv1.1"): return "F"
-        
         has_hsts = results["hsts_info"]["enabled"]
         has_tls13 = results["protocols"].get("TLSv1.3")
         is_strong = results["cipher_info"]["strength"] == "Strong"
-        
         if has_hsts and has_tls13 and is_strong: return "A"
         if has_hsts or has_tls13: return "B"
         return "C"
@@ -171,7 +202,6 @@ class SSLChecker:
         status = "success" if days_left > 0 else "error"
         label = f"Expires in {days_left} days." if days_left > 0 else f"Expired {abs(days_left)} days ago."
         results["checklist"].append({"label": label, "status": status})
-
         sans = self._get_sans(leaf)
         if self._check_hostname(self.hostname, sans):
             results["checklist"].append({"label": f"Hostname ({self.hostname}) matches certificate.", "status": "success"})

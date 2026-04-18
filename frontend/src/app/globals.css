@@ -470,3 +470,67 @@ footer { margin-top: 3rem; color: var(--label-color); font-size: 0.75rem; }
   justify-content: center;
   gap: 0.5rem;
 }
+
+/* Diagnostic Console */
+.console-wrapper {
+  margin-bottom: 2rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid var(--card-border);
+  background: #000;
+  transition: all 0.3s ease;
+}
+
+.console-header {
+  padding: 0.5rem 1rem;
+  background: #1a1a1a;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.console-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.console-body {
+  padding: 1rem;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.log-entry {
+  margin-bottom: 0.25rem;
+  display: flex;
+  gap: 1rem;
+}
+
+.log-time { color: #444; flex-shrink: 0; }
+.log-msg { color: #0f0; }
+
+/* Geo Badge */
+.geo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--value-color);
+  margin-left: 0.5rem;
+}
+
+.cdn-glow {
+  color: #fbbf24;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
+}
