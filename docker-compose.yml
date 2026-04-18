@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sslcheck-backend
+    restart: always
+    ports:
+      - "8091:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sslcheck-frontend
+    restart: always
+    ports:
+      - "8092:3000"
+    depends_on:
+      - backend
