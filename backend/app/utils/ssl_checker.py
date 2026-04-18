@@ -34,7 +34,13 @@ class SSLChecker:
             try:
                 ssl_conn.do_handshake()
             except SSL.Error as e:
-                return {"error": f"SSL Handshake failed: {str(e)}"}
+                # OpenSSL errors are often a list of tuples
+                error_msg = ""
+                if hasattr(e, 'args') and e.args:
+                    error_msg = f"{e.args}"
+                else:
+                    error_msg = str(e)
+                return {"error": f"SSL Handshake failed: {error_msg}"}
             except Exception as e:
                 return {"error": f"Handshake error: {str(e)}"}
 
