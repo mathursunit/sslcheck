@@ -124,6 +124,9 @@ export default function SSLCheck() {
           </div>
         </div>
       )}
+      <footer style={{ marginTop: 'auto', padding: '2rem', color: '#475569', fontSize: '0.8rem', textAlign: 'center' }}>
+        v1.0.2
+      </footer>
     </main>
   );
 }
