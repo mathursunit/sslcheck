@@ -2,8 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'SSLCheck | Verify Certificate Chain & Health',
-  description: 'On-demand SSL verification and certificate chain analysis tool.',
+  title: 'TrustIssues | Handshake Verification & Security Intelligence',
+  description: 'Because verifying the handshake shouldn\'t be a gamble. Deep SSL analysis and diagnostics.',
 };
 
 export default function RootLayout({

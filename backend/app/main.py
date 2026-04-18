@@ -19,7 +19,7 @@ class CheckRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "online", "message": "SSLCheck API is running"}
+    return {"status": "online", "message": "TrustIssues API is running"}
 
 @app.post("/run-analysis")
 async def analyze_ssl(request: CheckRequest):

@@ -162,20 +162,20 @@ export default function SSLCheck() {
       </button>
 
       <header>
-        <h1>SSLCheck</h1>
-        <p className="subtitle">Enterprise SSL Monitoring & Intelligence</p>
+        <h1>TrustIssues</h1>
+        <p className="subtitle">Because verifying the handshake shouldn't be a gamble.</p>
       </header>
 
       <div className="search-container">
         <input
           type="text"
-          placeholder="Enter hostname (e.g. google.com)"
+          placeholder="Who do you have trust issues with? (e.g. google.com)"
           value={hostname}
           onChange={(e) => setHostname(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
         />
         <button onClick={() => handleCheck()} disabled={loading}>
-          {loading ? 'Checking...' : 'Check SSL'}
+          {loading ? 'Verifying...' : 'Analyze Trust'}
         </button>
       </div>
 
@@ -328,7 +328,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.3.1
+        TrustIssues v1.4.0
       </footer>
     </main>
   );
