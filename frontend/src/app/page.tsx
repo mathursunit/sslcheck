@@ -4,9 +4,9 @@ import { useState } from 'react';
 
 interface CertDetail {
   common_name: string;
+  organization: string;
   issuer: string;
-  issuer_full: string;
-  subject_full: string;
+  issuer_org: string;
   valid_from: string;
   valid_to: string;
   serial_number: string;
@@ -118,8 +118,8 @@ export default function SSLCheck() {
                         <span>{new Date(cert.valid_to).toLocaleDateString()}</span>
                       </div>
                       <div className="info-box" style={{ gridColumn: '1 / -1' }}>
-                        <label>SHA-256 Fingerprint</label>
-                        <span style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{cert.fingerprint_sha256}</span>
+                        <label>Serial Number</label>
+                        <span style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{cert.serial_number}</span>
                       </div>
                     </div>
                   </div>
@@ -128,11 +128,33 @@ export default function SSLCheck() {
               </div>
             ))}
           </div>
+
+          <div className="details-section">
+            <div className="detail-row">
+              <span className="label">SHA-256 FINGERPRINT</span>
+              <span className="value mono">{result.chain[0].fingerprint_sha256}</span>
+            </div>
+
+            {result.chain[0].sans && result.chain[0].sans.length > 0 && (
+              <div className="detail-row" style={{ marginTop: '2rem' }}>
+                <span className="label">SUBJECT ALTERNATIVE NAMES</span>
+                <div className="sans-list">
+                  {result.chain[0].sans.map((san, idx) => (
+                    <span key={idx} className="san-badge">{san}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="action-footer">
+            <button className="secondary-btn">Remind me before it expires</button>
+          </div>
         </div>
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.1.1
+        v1.1.2
       </footer>
     </main>
   );

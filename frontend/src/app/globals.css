@@ -229,3 +229,77 @@ footer { margin-top: 5rem; color: #334155; font-size: 0.8rem; }
   font-weight: 700;
   border: 1px solid rgba(16, 185, 129, 0.2);
 }
+
+/* Details Section */
+.details-section {
+  margin-top: 4rem;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 1.5rem;
+  padding: 2.5rem;
+}
+
+.detail-row .label {
+  display: block;
+  font-size: 0.7rem;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.75rem;
+  font-weight: 700;
+}
+
+.value.mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9rem;
+  color: #94a3b8;
+  word-break: break-all;
+  display: block;
+}
+
+.sans-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.san-badge {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  transition: all 0.2s;
+}
+
+.san-badge:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* Action Footer */
+.action-footer {
+  margin-top: 3rem;
+  display: flex;
+  justify-content: center;
+}
+
+.secondary-btn {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 0.75rem 1.5rem;
+  border-radius: 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondary-btn:hover {
+  border-color: var(--primary);
+  color: #fff;
+  background: rgba(59, 130, 246, 0.1);
+}
