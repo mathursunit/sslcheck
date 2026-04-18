@@ -42,7 +42,7 @@ class SSLChecker:
 
             # 2. HTTP Checks (Server Type & HSTS)
             try:
-                resp = requests.get(f"https://{self.hostname}", timeout=5, verify=False)
+                resp = requests.get(f"https://{self.hostname}", timeout=5, verify=False, allow_redirects=True)
                 results["server_type"] = resp.headers.get("Server", "Unknown")
                 results["checklist"].append({
                     "label": f"Server Type: {results['server_type']}",
