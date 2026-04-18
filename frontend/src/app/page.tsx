@@ -70,7 +70,14 @@ export default function SSLCheck() {
             {loading ? <div className="loader"></div> : 'Check SSL'}
           </button>
         </div>
-        {error && <p style={{ color: 'var(--danger)', marginTop: '1rem', textAlign: 'center' }}>{error}</p>}
+        {error && (
+          <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+            <p style={{ color: 'var(--danger)', marginBottom: '0.5rem' }}>SSL Check Failed</p>
+            <code style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.8rem', color: 'var(--danger)' }}>
+              {error}
+            </code>
+          </div>
+        )}
       </div>
 
       {result && (
@@ -125,7 +132,7 @@ export default function SSLCheck() {
         </div>
       )}
       <footer style={{ marginTop: 'auto', padding: '2rem', color: '#475569', fontSize: '0.8rem', textAlign: 'center' }}>
-        v1.0.2
+        v1.0.3
       </footer>
     </main>
   );

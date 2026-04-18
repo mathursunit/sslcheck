@@ -37,6 +37,7 @@ async def check_ssl(request: CheckRequest):
     result = checker.get_cert_details()
     
     if "error" in result:
+        print(f"SSL Check Error for {hostname}: {result['error']}")
         raise HTTPException(status_code=400, detail=result["error"])
     
     return result

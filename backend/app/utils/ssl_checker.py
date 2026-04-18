@@ -18,11 +18,25 @@ class SSLChecker:
             context.set_verify(SSL.VERIFY_NONE) # We verify manually
 
             # Create a socket and connect
-            conn = socket.create_connection((self.hostname, self.port), timeout=10)
+            try:
+                conn = socket.create_connection((self.hostname, self.port), timeout=10)
+            except socket.gaierror:
+                return {"error": f"Could not resolve hostname: {self.hostname}"}
+            except socket.timeout:
+                return {"error": f"Connection timed out for {self.hostname}"}
+            except Exception as e:
+                return {"error": f"Socket error: {str(e)}"}
+
             ssl_conn = SSL.Connection(context, conn)
             ssl_conn.set_tlsext_host_name(self.hostname.encode())
             ssl_conn.set_connect_state()
-            ssl_conn.do_handshake()
+            
+            try:
+                ssl_conn.do_handshake()
+            except SSL.Error as e:
+                return {"error": f"SSL Handshake failed: {str(e)}"}
+            except Exception as e:
+                return {"error": f"Handshake error: {str(e)}"}
 
             # Get the certificate chain
             chain = ssl_conn.get_peer_cert_chain()
