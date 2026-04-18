@@ -1,10 +1,10 @@
 import socket
 import ssl
-from OpenSSL import SSL
 from datetime import datetime
 from typing import List, Dict, Optional
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
+from cryptography.x509.oid import NameOID
 
 class SSLChecker:
     def __init__(self, hostname: str, port: int = 443):
@@ -13,95 +13,70 @@ class SSLChecker:
 
     def get_cert_details(self) -> Dict:
         try:
-            # Use a more modern method if available
-            try:
-                context = SSL.Context(SSL.SSLv23_METHOD)
-            except:
-                context = SSL.Context(SSL.TLS_CLIENT_METHOD)
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE  # User wants to check even if invalid
             
-            context.set_options(SSL.OP_NO_SSLv2 | SSL.OP_NO_SSLv3)
-            context.set_verify(SSL.VERIFY_NONE)
-
-            conn = socket.create_connection((self.hostname, self.port), timeout=10)
-            ssl_conn = SSL.Connection(context, conn)
-            ssl_conn.set_tlsext_host_name(self.hostname.encode())
-            ssl_conn.set_connect_state()
-            
-            try:
-                ssl_conn.do_handshake()
-            except SSL.Error as e:
-                # Capture the full OpenSSL error queue
-                error_list = e.args[0] if e.args else "Unknown OpenSSL Error"
-                return {"error": f"SSL Handshake Error: {error_list}"}
-            except Exception as e:
-                return {"error": f"Handshake Exception: {type(e).__name__}: {str(e)}"}
-
-            # Get the certificate chain
-            chain = ssl_conn.get_peer_cert_chain()
-            if not chain:
-                return {"error": "No certificate chain found"}
-
-            details = {
-                "hostname": self.hostname,
-                "port": self.port,
-                "is_valid": False,
-                "chain": [],
-                "errors": []
-            }
-
-            # Process the chain
-            for index, cert in enumerate(chain):
-                cert_data = self._parse_cert(cert)
-                details["chain"].append(cert_data)
-
-            # Basic Validation (Leaf cert)
-            leaf_cert = chain[0]
-            not_after = datetime.strptime(leaf_cert.get_notAfter().decode('ascii'), '%Y%m%d%H%M%SZ')
-            not_before = datetime.strptime(leaf_cert.get_notBefore().decode('ascii'), '%Y%m%d%H%M%SZ')
-            now = datetime.utcnow()
-
-            if now < not_before:
-                details["errors"].append("Certificate is not yet valid")
-            if now > not_after:
-                details["errors"].append("Certificate has expired")
-
-            # Check hostname (simplified)
-            subject = leaf_cert.get_subject()
-            common_name = dict(subject.get_components()).get(b'CN', b'').decode()
-            if common_name and common_name != self.hostname and not self.hostname.endswith(common_name.replace('*.', '.')):
-                 pass 
-
-            details["is_valid"] = len(details["errors"]) == 0
-            
-            ssl_conn.close()
-            return details
+            with socket.create_connection((self.hostname, self.port), timeout=10) as sock:
+                with context.wrap_socket(sock, server_hostname=self.hostname) as ssock:
+                    cert_bin = ssock.getpeercert(binary_form=True)
+                    if not cert_bin:
+                        return {"error": "No certificate received from server"}
+                    
+                    # Note: In Python 3.9, the standard ssl lib doesn't easily return the full chain
+                    # until the 'get_verified_chain' in 3.10. We parse the leaf for now.
+                    leaf_cert = x509.load_der_x509_certificate(cert_bin)
+                    
+                    details = {
+                        "hostname": self.hostname,
+                        "port": self.port,
+                        "is_valid": False,
+                        "chain": [self._parse_crypto_cert(leaf_cert)],
+                        "errors": []
+                    }
+                    
+                    # Basic Validation
+                    now = datetime.utcnow()
+                    if now < leaf_cert.not_valid_before:
+                        details["errors"].append("Certificate is not yet valid")
+                    if now > leaf_cert.not_valid_after:
+                        details["errors"].append("Certificate has expired")
+                    
+                    details["is_valid"] = len(details["errors"]) == 0
+                    return details
 
         except Exception as e:
-            return {"error": f"Internal Prober Error: {type(e).__name__}: {str(e)}"}
+            return {"error": f"Prober Error: {type(e).__name__}: {str(e)}"}
 
-    def _parse_cert(self, cert: SSL.X509) -> Dict:
-        subject = cert.get_subject()
-        issuer = cert.get_issuer()
+    def _parse_crypto_cert(self, cert: x509.Certificate) -> Dict:
+        subject = cert.subject
+        issuer = cert.issuer
         
-        not_after = datetime.strptime(cert.get_notAfter().decode('ascii'), '%Y%m%d%H%M%SZ')
-        not_before = datetime.strptime(cert.get_notBefore().decode('ascii'), '%Y%m%d%H%M%SZ')
-        
-        # Get fingerprints
-        crypto_cert = x509.load_pem_x509_certificate(
-            SSL.dump_certificate(SSL.FILETYPE_PEM, cert)
-        )
-        
-        fingerprint_sha256 = crypto_cert.fingerprint(hashes.SHA256()).hex().upper()
+        # Helper to convert Name to Dict
+        def name_to_dict(name):
+            return {attr.oid._name: attr.value for attr in name}
+
+        fingerprint_sha256 = cert.fingerprint(hashes.SHA256()).hex().upper()
         fingerprint_sha256 = ":".join(fingerprint_sha256[i:i+2] for i in range(0, len(fingerprint_sha256), 2))
 
+        # Handle CN specifically if available
+        subject_dict = name_to_dict(subject)
+        issuer_dict = name_to_dict(issuer)
+        
+        # Add 'CN' key if commonName exists
+        if 'commonName' in subject_dict:
+            subject_dict['CN'] = subject_dict['commonName']
+        if 'commonName' in issuer_dict:
+            issuer_dict['CN'] = issuer_dict['commonName']
+
         return {
-            "subject": {k.decode(): v.decode() for k, v in subject.get_components()},
-            "issuer": {k.decode(): v.decode() for k, v in issuer.get_components()},
-            "version": cert.get_version(),
-            "serial_number": cert.get_serial_number(),
-            "not_before": not_before.isoformat(),
-            "not_after": not_after.isoformat(),
-            "is_expired": datetime.utcnow() > not_after,
-            "signature_algorithm": cert.get_signature_algorithm().decode(),
+            "subject": subject_dict,
+            "issuer": issuer_dict,
+            "version": cert.version.name,
+            "serial_number": cert.serial_number,
+            "not_before": cert.not_valid_before.isoformat(),
+            "not_after": cert.not_valid_after.isoformat(),
+            "is_expired": datetime.utcnow() > cert.not_valid_after,
+            "signature_algorithm": cert.signature_algorithm_oid._name,
             "fingerprint_sha256": fingerprint_sha256
         }
