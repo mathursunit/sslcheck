@@ -21,8 +21,8 @@ class CheckRequest(BaseModel):
 async def root():
     return {"status": "online", "message": "SSLCheck API is running"}
 
-@app.post("/check")
-async def check_ssl(request: CheckRequest):
+@app.post("/run-analysis")
+async def analyze_ssl(request: CheckRequest):
     hostname = request.hostname.strip().lower()
     if not hostname:
         raise HTTPException(status_code=400, detail="Hostname is required")
@@ -34,7 +34,7 @@ async def check_ssl(request: CheckRequest):
         hostname = hostname.split("/")[0]
 
     checker = SSLChecker(hostname)
-    result = checker.get_cert_details()
+    result = checker.get_details()
     
     if "error" in result:
         print(f"SSL Check Error for {hostname}: {result['error']}")

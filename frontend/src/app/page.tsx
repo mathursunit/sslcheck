@@ -42,7 +42,7 @@ export default function SSLCheck() {
     setResult(null);
 
     try {
-      const response = await fetch('/api/check', {
+      const response = await fetch('/api/run-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hostname }),
@@ -132,7 +132,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.1.0
+        v1.1.1
       </footer>
     </main>
   );
