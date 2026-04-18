@@ -19,7 +19,7 @@ interface CertDetail {
 
 interface CheckItem {
   label: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'info';
 }
 
 interface SSLResult {
@@ -29,8 +29,11 @@ interface SSLResult {
   chain: CertDetail[];
   checklist: CheckItem[];
   protocols: Record<string, boolean>;
+  cipher_info: { name: string; bits: number; strength: string };
+  handshake_time: number;
+  alpn: string;
   security_grade: string;
-  hsts_info: { enabled: boolean; max_age: number };
+  hsts_info: { enabled: boolean; preloaded: boolean };
   is_valid: boolean;
 }
 
@@ -43,14 +46,12 @@ export default function SSLCheck() {
   const [history, setHistory] = useState<string[]>([]);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // Theme support
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as 'dark' | 'light';
     if (savedTheme) {
       setTheme(savedTheme);
       document.documentElement.setAttribute('data-theme', savedTheme);
     }
-    // Load history
     const savedHistory = JSON.parse(localStorage.getItem('ssl_history') || '[]');
     setHistory(savedHistory);
   }, []);
@@ -80,14 +81,11 @@ export default function SSLCheck() {
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Analysis failed');
-      
       setResult(data);
       
-      // Update history
       const newHistory = [hostToQuery, ...history.filter(h => h !== hostToQuery)].slice(0, 5);
       setHistory(newHistory);
       localStorage.setItem('ssl_history', JSON.stringify(newHistory));
-      
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -100,19 +98,7 @@ export default function SSLCheck() {
     const cert = result.chain[0];
     const expiryDate = new Date(cert.valid_to);
     const dateStr = expiryDate.toISOString().replace(/-|:|\.\d+/g, '');
-    
-    const icsContent = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'BEGIN:VEVENT',
-      `DTSTART:${dateStr}`,
-      `DTEND:${dateStr}`,
-      `SUMMARY:SSL Certificate Expiry: ${result.hostname}`,
-      `DESCRIPTION:Your SSL certificate for ${result.hostname} expires today.`,
-      'END:VEVENT',
-      'END:VCALENDAR'
-    ].join('\r\n');
-
+    const icsContent = ['BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT',`DTSTART:${dateStr}`,`DTEND:${dateStr}`,`SUMMARY:SSL Expiry: ${result.hostname}`,`DESCRIPTION:SSL for ${result.hostname} expires today.`,'END:VEVENT','END:VCALENDAR'].join('\r\n');
     const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
     const link = document.createElement('a');
     link.href = window.URL.createObjectURL(blob);
@@ -125,15 +111,12 @@ export default function SSLCheck() {
     try {
       const dataUrl = await toPng(reportRef.current, { backgroundColor: theme === 'dark' ? '#0d0f14' : '#f1f5f9' });
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgProperties = pdf.getImageProperties(dataUrl);
+      const imgProps = pdf.getImageProperties(dataUrl);
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProperties.height * pdfWidth) / imgProperties.width;
-      
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
       pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
       pdf.save(`SSLCheck_Report_${result?.hostname}.pdf`);
-    } catch (err) {
-      console.error('PDF generation failed', err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   return (
@@ -181,6 +164,15 @@ export default function SSLCheck() {
               <span className="grade-letter">{result.security_grade}</span>
               <span className="grade-label">Grade</span>
             </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginBottom: '2rem' }}>
+             <div className="badge-valid" style={{ background: 'var(--primary-glow)', color: 'var(--primary)', borderColor: 'var(--primary)' }}>
+                Handshake: {result.handshake_time}ms
+             </div>
+             <div className="badge-valid" style={{ background: 'var(--glass-bg)', color: 'var(--value-color)' }}>
+                Protocol: {result.alpn}
+             </div>
           </div>
 
           <div className="checklist">
@@ -233,6 +225,11 @@ export default function SSLCheck() {
 
           <div className="details-section">
             <div className="detail-row">
+              <span className="label">Encryption & Cipher</span>
+              <span className="value">{result.cipher_info.name} ({result.cipher_info.bits} bits - {result.cipher_info.strength})</span>
+            </div>
+
+            <div className="detail-row" style={{ marginTop: '1.5rem' }}>
               <span className="label">SHA-256 FINGERPRINT</span>
               <span className="value mono">{result.chain[0].fingerprint_sha256}</span>
             </div>
@@ -241,7 +238,7 @@ export default function SSLCheck() {
               <div className="detail-row" style={{ marginTop: '1.5rem' }}>
                 <span className="label">SUBJECT ALTERNATIVE NAMES</span>
                 <div className="sans-list">
-                  {result.chain[0].sans.slice(0, 50).map((san, idx) => (
+                  {result.chain[0].sans.slice(0, 30).map((san, idx) => (
                     <span key={idx} className="san-badge">{san}</span>
                   ))}
                 </div>
@@ -261,7 +258,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.2.0
+        v1.2.2
       </footer>
     </main>
   );
