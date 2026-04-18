@@ -154,7 +154,7 @@ export default function SSLCheck() {
       )}
 
       <footer style={{ textAlign: 'center' }}>
-        v1.1.2
+        v1.1.3
       </footer>
     </main>
   );
